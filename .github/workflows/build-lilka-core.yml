@@ -1,0 +1,40 @@
+name: build-lilka-core
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply ESP-IDF patches
+        shell: bash
+        run: |
+          cd "$IDF_PATH"
+          patch --ignore-whitespace -p1 -i "$GITHUB_WORKSPACE/tools/patches/panic-hook (esp-idf 4).diff"
+          patch --ignore-whitespace -p1 -i "$GITHUB_WORKSPACE/tools/patches/sdcard-fix (esp-idf 4).diff"
+
+      - name: Apply Lilka exit-to-Keira patch
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git apply .github/patches/lilka-exit-to-keira.patch
+
+      - name: Build retro-core for Lilka
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          cd "$GITHUB_WORKSPACE"
+          python rg_tool.py --target=lilka build retro-core
+
+      - name: Upload retro-core.bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: retro-core-lilka
+          path: retro-core/build/retro-core.bin
+          if-no-files-found: error
