@@ -1,0 +1,23 @@
+diff --git a/components/retro-go/rg_system.c b/components/retro-go/rg_system.c
+index 74fbf32..ffa54a1 100644
+--- a/components/retro-go/rg_system.c
++++ b/components/retro-go/rg_system.c
+@@ -935,7 +935,18 @@ void rg_system_restart(void)
+ void rg_system_exit(void)
+ {
+     RG_LOGW("Exiting application!");
++#if defined(ESP_PLATFORM)
++    // Lilka multiboot: retro-go is loaded by KeiraOS into an OTA slot using
++    // Keira's own partition table, so there is no retro-go "launcher"
++    // partition to return to. Hand control back to the other OTA app (Keira)
++    // instead of bootlooping into ourselves.
++    const esp_partition_t *keira = esp_ota_get_next_update_partition(NULL);
++    if (keira)
++        esp_ota_set_boot_partition(keira);
++    rg_system_restart();
++#else
+     rg_system_switch_app(RG_APP_LAUNCHER, NULL, NULL, 0, 0);
++#endif
+ }
+ 
+ void rg_system_switch_app(const char *partition, const char *name, const char *args, int save_slot, uint32_t flags)
