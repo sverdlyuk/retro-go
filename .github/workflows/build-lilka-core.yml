@@ -2,6 +2,9 @@ name: build-lilka-core
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'lilka-core-*'
 
 jobs:
   build:
@@ -32,9 +35,15 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           python rg_tool.py --target=lilka build retro-core
 
-      - name: Upload retro-core.bin
+      - name: Upload retro-core.bin (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: retro-core-lilka
           path: retro-core/build/retro-core.bin
           if-no-files-found: error
+
+      - name: Publish to Releases (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: retro-core/build/retro-core.bin
