@@ -1,0 +1,91 @@
+name: build-lilka-pico8
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'lilka-pico8-*'
+
+# Збирає pico8.bin для Lilka.
+# Не потребує окремого megapack-форку: воркфлов сам клонує megapack
+# (DynaMight1124) і таргет Лілки (ab4o1on) під час збірки.
+# Поклади цей файл у будь-який свій retro-go-форк і запусти вручну.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.5.1
+    steps:
+      - name: Clone megapack source
+        shell: bash
+        run: |
+          git clone --depth 1 -b megapack https://github.com/DynaMight1124/retro-go rg
+
+      - name: Bring in Lilka target (from ab4o1on)
+        shell: bash
+        run: |
+          git clone --depth 1 -b lilka-dev https://github.com/ab4o1on/retro-go /tmp/ab4o1on
+          cp -r /tmp/ab4o1on/components/retro-go/targets/lilka rg/components/retro-go/targets/lilka
+          python3 - <<'PY'
+          p = "rg/components/retro-go/config.h"
+          s = open(p).read()
+          anchor = '#elif defined(RG_TARGET_HDMI)\n#include "targets/hdmi/config.h"\n#else'
+          add = '#elif defined(RG_TARGET_HDMI)\n#include "targets/hdmi/config.h"\n#elif defined(RG_TARGET_LILKA)\n#include "targets/lilka/config.h"\n#else'
+          if "RG_TARGET_LILKA" not in s:
+              assert s.count(anchor) == 1, "config.h anchor not found"
+              open(p, "w").write(s.replace(anchor, add))
+              print("config.h: Lilka registered")
+          PY
+
+      - name: Apply ESP-IDF patches
+        shell: bash
+        run: |
+          cd "$IDF_PATH"
+          patch --ignore-whitespace -p1 -i "$GITHUB_WORKSPACE/rg/tools/patches/panic-hook (esp-idf 5).diff" || true
+          patch --ignore-whitespace -p1 -i "$GITHUB_WORKSPACE/rg/tools/patches/sdcard-fix (esp-idf 5).diff" || true
+
+      - name: Apply Lilka exit-to-Keira patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          p = "rg/components/retro-go/rg_system.c"
+          s = open(p).read()
+          old = ('void rg_system_exit(void)\n{\n'
+                 '    RG_LOGW("Exiting application!");\n'
+                 '    rg_system_switch_app(RG_APP_LAUNCHER, NULL, NULL, 0, 0);\n}')
+          new = ('void rg_system_exit(void)\n{\n'
+                 '    RG_LOGW("Exiting application!");\n'
+                 '#if defined(ESP_PLATFORM)\n'
+                 '    const esp_partition_t *keira = esp_ota_get_next_update_partition(NULL);\n'
+                 '    if (keira)\n'
+                 '        esp_ota_set_boot_partition(keira);\n'
+                 '    rg_system_restart();\n'
+                 '#else\n'
+                 '    rg_system_switch_app(RG_APP_LAUNCHER, NULL, NULL, 0, 0);\n'
+                 '#endif\n}')
+          if new not in s:
+              assert s.count(old) == 1, "rg_system_exit anchor not found"
+              open(p, "w").write(s.replace(old, new))
+              print("exit patch applied")
+          PY
+
+      - name: Build pico8 for Lilka
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          cd "$GITHUB_WORKSPACE/rg"
+          python rg_tool.py --target=lilka build pico8
+
+      - name: Upload pico8.bin (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pico8-lilka
+          path: rg/pico8/build/pico8.bin
+          if-no-files-found: error
+
+      - name: Publish to Releases (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: rg/pico8/build/pico8.bin
