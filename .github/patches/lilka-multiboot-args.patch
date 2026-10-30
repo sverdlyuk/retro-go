@@ -1,0 +1,57 @@
+diff --git a/components/retro-go/rg_system.c b/components/retro-go/rg_system.c
+index 74fbf32..ad2b78a 100644
+--- a/components/retro-go/rg_system.c
++++ b/components/retro-go/rg_system.c
+@@ -15,6 +15,8 @@
+ #include <esp_heap_caps.h>
+ #include <esp_partition.h>
+ #include <esp_ota_ops.h>
++#include <esp_crc.h>
++#include <strings.h>
+ #include <esp_system.h>
+ #include <esp_timer.h>
+ #include <esp_sleep.h>
+@@ -464,6 +466,43 @@ rg_app_t *rg_system_init(const rg_config_t *config)
+     rg_settings_init(enterRecoveryMode || showCrashDialog);
+     app.configNs = rg_settings_get_string(NS_BOOT, SETTING_BOOT_NAME, app.configNs);
+     app.bootArgs = rg_settings_get_string(NS_BOOT, SETTING_BOOT_ARGS, app.bootArgs);
++#if defined(RG_TARGET_LILKA)
++    // Lilka multiboot: Keira may pass the ROM path in RTC slow memory instead of
++    // a boot.json. Layout matches lilka SDK multiboot.cpp (KernelParams @ 0x50000000,
++    // CRC32 over the whole 1024-byte buffer). If a valid command line is present,
++    // it overrides the settings above; otherwise we fall back to boot.json.
++    {
++        static char _lilka_cmd[1024];
++        const volatile char *_rtc = (const volatile char *)0x50000000;
++        for (int _i = 0; _i < 1024; _i++) _lilka_cmd[_i] = _rtc[_i];
++        uint32_t _stored_crc = *(const volatile uint32_t *)(0x50000000 + 1024);
++        uint32_t _calc_crc = esp_crc32_le(0, (const uint8_t *)_lilka_cmd, 1024);
++        if (_calc_crc == _stored_crc) {
++            _lilka_cmd[1023] = 0;
++            char *_p = _lilka_cmd;
++            while (*_p == ' ') _p++;            // lead spaces
++            while (*_p && *_p != ' ') _p++;     // skip argv[0] (firmware name)
++            while (*_p == ' ') _p++;            // to ROM path (rest of line, spaces kept)
++            if (*_p) {
++                static char _lilka_rom[1024];
++                strncpy(_lilka_rom, _p, sizeof(_lilka_rom) - 1);
++                app.bootArgs = _lilka_rom;
++                const char *_dot = strrchr(_lilka_rom, '.');
++                if (_dot) {
++                    if      (!strcasecmp(_dot, ".nes")) app.configNs = "nes";
++                    else if (!strcasecmp(_dot, ".pce")) app.configNs = "pce";
++                    else if (!strcasecmp(_dot, ".gb"))  app.configNs = "gb";
++                    else if (!strcasecmp(_dot, ".gbc")) app.configNs = "gbc";
++                    else if (!strcasecmp(_dot, ".sms")) app.configNs = "sms";
++                    else if (!strcasecmp(_dot, ".gg"))  app.configNs = "gg";
++                    else if (!strcasecmp(_dot, ".col")) app.configNs = "col";
++                    else if (!strcasecmp(_dot, ".lnx")) app.configNs = "lnx";
++                }
++                RG_LOGI("Lilka multiboot ROM: %s (ns=%s)", _lilka_rom, app.configNs ?: "-");
++            }
++        }
++    }
++#endif
+     app.bootFlags = rg_settings_get_number(NS_BOOT, SETTING_BOOT_FLAGS, app.bootFlags);
+     app.saveSlot = rg_settings_get_number(NS_BOOT, SETTING_BOOT_SLOT, app.saveSlot);
+     rg_display_init();
