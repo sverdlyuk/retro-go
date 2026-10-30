@@ -1,0 +1,51 @@
+name: build-lilka-snes9x
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'lilka-snes9x-*'
+
+# Збирає snes9x.bin (Super Nintendo / SNES) для Lilka з цього ж форку (ab4o1on).
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply ESP-IDF patches
+        shell: bash
+        run: |
+          cd "$IDF_PATH"
+          patch --ignore-whitespace -p1 -i "$GITHUB_WORKSPACE/tools/patches/panic-hook (esp-idf 4).diff"
+          patch --ignore-whitespace -p1 -i "$GITHUB_WORKSPACE/tools/patches/sdcard-fix (esp-idf 4).diff"
+
+      - name: Apply Lilka exit-to-Keira patch
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git apply .github/patches/lilka-exit-to-keira.patch
+
+      - name: Build snes9x for Lilka
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          cd "$GITHUB_WORKSPACE"
+          python rg_tool.py --target=lilka build snes9x
+
+      - name: Upload snes9x.bin (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: snes9x-lilka
+          path: snes9x/build/snes9x.bin
+          if-no-files-found: error
+
+      - name: Publish to Releases (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: snes9x/build/snes9x.bin
