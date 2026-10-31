@@ -6,10 +6,8 @@ on:
     tags:
       - 'lilka-pico8-*'
 
-# Збирає pico8.bin для Lilka.
-# Не потребує окремого megapack-форку: воркфлов сам клонує megapack
-# (DynaMight1124) і таргет Лілки (ab4o1on) під час збірки.
-# Поклади цей файл у будь-який свій retro-go-форк і запусти вручну.
+# PICO-8 для Lilka
+# Воркфлов сам клонує megapack (DynaMight1124) і таргет Лілки (ab4o1on).
 
 jobs:
   build:
@@ -19,8 +17,7 @@ jobs:
     steps:
       - name: Clone megapack source
         shell: bash
-        run: |
-          git clone --depth 1 -b megapack https://github.com/DynaMight1124/retro-go rg
+        run: git clone --depth 1 -b megapack https://github.com/DynaMight1124/retro-go rg
 
       - name: Bring in Lilka target (from ab4o1on)
         shell: bash
@@ -65,9 +62,60 @@ jobs:
                  '    rg_system_switch_app(RG_APP_LAUNCHER, NULL, NULL, 0, 0);\n'
                  '#endif\n}')
           if new not in s:
-              assert s.count(old) == 1, "rg_system_exit anchor not found"
+              assert s.count(old) == 1, "exit anchor not found"
               open(p, "w").write(s.replace(old, new))
               print("exit patch applied")
+          PY
+
+      - name: Apply Lilka multiboot-args patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          p = "rg/components/retro-go/rg_system.c"
+          s = open(p).read()
+          anchor = 'app.bootArgs = rg_settings_get_string(NS_BOOT, SETTING_BOOT_ARGS, app.bootArgs);'
+          block = anchor + '''
+          #if defined(RG_TARGET_LILKA)
+              {
+                  static char _lilka_cmd[1024];
+                  const volatile char *_rtc = (const volatile char *)0x50000000;
+                  for (int _i = 0; _i < 1024; _i++) _lilka_cmd[_i] = _rtc[_i];
+                  uint32_t _stored_crc = *(const volatile uint32_t *)(0x50000000 + 1024);
+                  uint32_t _calc_crc = esp_crc32_le(0, (const uint8_t *)_lilka_cmd, 1024);
+                  if (_calc_crc == _stored_crc) {
+                      _lilka_cmd[1023] = 0;
+                      char *_p = _lilka_cmd;
+                      while (*_p == ' ') _p++;
+                      while (*_p && *_p != ' ') _p++;
+                      while (*_p == ' ') _p++;
+                      if (*_p) {
+                          static char _lilka_rom[1024];
+                          strncpy(_lilka_rom, _p, sizeof(_lilka_rom) - 1);
+                          app.bootArgs = _lilka_rom;
+                          const char *_dot = strrchr(_lilka_rom, '.');
+                          if (_dot) {
+                              if      (!strcasecmp(_dot, ".nes")) app.configNs = "nes";
+                              else if (!strcasecmp(_dot, ".pce")) app.configNs = "pce";
+                              else if (!strcasecmp(_dot, ".gb"))  app.configNs = "gb";
+                              else if (!strcasecmp(_dot, ".gbc")) app.configNs = "gbc";
+                              else if (!strcasecmp(_dot, ".sms")) app.configNs = "sms";
+                              else if (!strcasecmp(_dot, ".gg"))  app.configNs = "gg";
+                              else if (!strcasecmp(_dot, ".col")) app.configNs = "col";
+                              else if (!strcasecmp(_dot, ".lnx")) app.configNs = "lnx";
+                          }
+                          RG_LOGI("Lilka multiboot ROM: %s (ns=%s)", _lilka_rom, app.configNs ?: "-");
+                      }
+                  }
+              }
+          #endif'''
+          if "_lilka_cmd" not in s:
+              assert s.count(anchor) == 1, "bootArgs anchor not found"
+              s = s.replace(anchor, block)
+          inc = "#include <esp_ota_ops.h>"
+          if "esp_crc.h" not in s:
+              s = s.replace(inc, inc + "\n#include <esp_crc.h>\n#include <strings.h>", 1)
+          open(p, "w").write(s)
+          print("multiboot-args patch applied")
           PY
 
       - name: Build pico8 for Lilka
