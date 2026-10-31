@@ -28,6 +28,12 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           git apply .github/patches/lilka-exit-to-keira.patch
 
+      - name: Apply Lilka multiboot-args patch
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git apply .github/patches/lilka-multiboot-args.patch
+
       - name: Build retro-core for Lilka
         shell: bash
         run: |
@@ -38,7 +44,7 @@ jobs:
       - name: Upload retro-core.bin (artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: retro-core-lilka
+          name: core-lilka
           path: retro-core/build/retro-core.bin
           if-no-files-found: error
 
