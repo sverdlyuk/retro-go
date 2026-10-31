@@ -6,8 +6,6 @@ on:
     tags:
       - 'lilka-snes9x-*'
 
-# Збирає snes9x.bin (Super Nintendo / SNES) для Lilka з цього ж форку (ab4o1on).
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,6 +27,12 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE"
           git apply .github/patches/lilka-exit-to-keira.patch
+
+      - name: Apply Lilka multiboot-args patch
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git apply .github/patches/lilka-multiboot-args.patch
 
       - name: Build snes9x for Lilka
         shell: bash
