@@ -1,0 +1,10 @@
+
+cmake_minimum_required(VERSION 3.5)
+
+set(COMPONENTS "main retro-go")
+
+set(RG_ENABLE_NETWORKING 0)
+
+include(../base.cmake)
+
+project(tiamc1-go)
